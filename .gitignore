@@ -1,0 +1,17 @@
+.venv/
+.pycache/
+.matplotlib/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+data/*.npz
+data/*.csv
+!data/example_cu.csv
+!data/example_mo.csv
+!data/example_ag.csv
+models/*.joblib
+!models/fluox-cu.joblib
+!models/fluox-mo.joblib
+!models/fluox-ag.joblib
+models/*.json
+outputs/

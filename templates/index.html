@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FluoX–Mo · XRF Analysis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">Fx</span><span>FluoX–Mo</span></div>
+    <p>Automated elemental identification</p>
+    <span class="local-badge">● Local analysis</span>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">XRF SPECTROMETRY · Mo ANODE</p>
+        <h1>Upload a spectrum.<br><span>Identify its elements.</span></h1>
+        <p class="intro">Load a calibrated file containing two columns: energy in keV and counts.</p>
+      </div>
+      <form method="post" enctype="multipart/form-data" class="upload-card" id="analysis-form">
+        <label class="anode-field" for="anode"><span>Tube anode</span>
+          <select id="anode" name="anode">
+            {% for material in ('Cu', 'Mo', 'Ag') %}
+            <option value="{{ material }}" {% if selected_anode == material %}selected{% endif %}>{{ material }}</option>
+            {% endfor %}
+          </select>
+          <small>The matching source model will be used</small>
+        </label>
+        <div class="dropzone" id="dropzone">
+          <span class="upload-icon">↑</span>
+          <strong id="file-title">Open a spectrum</strong>
+          <small>CSV, TSV, or TXT · 8 MB maximum</small>
+          <input id="spectrum" name="spectrum" type="file" accept=".csv,.tsv,.txt" required
+                 onchange="previewFile(this.files[0])">
+          <button type="button" class="open-button" onclick="document.getElementById('spectrum').click()">Open…</button>
+          <span id="filename"></span>
+        </div>
+        <div id="preview-wrap" class="preview-wrap" hidden>
+          <div class="preview-heading"><strong>File preview</strong><span id="point-count"></span></div>
+          <canvas id="preview-canvas" width="720" height="210"></canvas>
+        </div>
+        <button type="submit" id="analyze-button" disabled>Analyze spectrum →</button>
+      </form>
+    </section>
+
+    {% if error %}<div class="alert"><strong>Analysis failed</strong><span>{{ error }}</span></div>{% endif %}
+
+    {% if predictions %}
+    <section class="results">
+      <div class="section-heading">
+        <div><p class="eyebrow">RESULTS · {{ filename }} · {{ selected_anode }} ANODE</p><h2>Detected composition</h2></div>
+        <span class="count">{{ detected|length }} element{% if detected|length != 1 %}s{% endif %}</span>
+      </div>
+
+      <div class="detected-grid">
+        {% for row in detected %}
+        <article class="element-card">
+          <div class="symbol">{{ row.element }}</div>
+          <div><strong>{{ row.percent }} %</strong><small>probability</small><span class="energy">{{ "%.3f"|format(row.primary_energy) }} keV</span></div>
+          <span class="check">✓</span>
+        </article>
+        {% else %}
+        <p class="empty">No element is above its decision threshold.</p>
+        {% endfor %}
+      </div>
+
+      <div class="analysis-grid">
+        <article class="panel spectrum-panel">
+          <div class="panel-title"><h3>Energy spectrum</h3><span>Predicted lines shown as dashed markers</span></div>
+          <img src="data:image/png;base64,{{ plot }}" alt="Annotated XRF spectrum">
+        </article>
+
+        <article class="panel probability-panel">
+          <div class="panel-title"><h3>All probabilities</h3><span>Element-specific thresholds</span></div>
+          <div class="probability-list">
+          {% for row in predictions %}
+            <div class="probability-row {% if row.present %}is-present{% endif %}">
+              <span class="mini-symbol">{{ row.element }}</span>
+              <div class="bar"><i style="width: {{ row.percent }}%"></i></div>
+              <strong>{{ row.percent }} %</strong>
+              <span class="row-energy">{{ "%.3f"|format(row.primary_energy) }} keV</span>
+              <span class="decision">{% if row.present %}present{% else %}absent{% endif %}</span>
+            </div>
+          {% endfor %}
+          </div>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
+    <aside class="warning"><strong>Scientific prototype</strong> Results validated only on synthetic data. The tube-anode element itself cannot be identified reliably and is excluded from that model.</aside>
+  </main>
+  <div class="loading-overlay" id="loading" hidden>
+    <div class="loading-card">
+      <div class="atom-loader"><i></i><b></b></div>
+      <h2>Analyzing spectrum</h2>
+      <p id="loading-step">Reading the energy grid…</p>
+      <div class="progress"><i id="progress-bar"></i></div>
+      <small>Multi-label identification in progress</small>
+    </div>
+  </div>
+  <script>
+    const input=document.getElementById('spectrum'), dropzone=document.getElementById('dropzone'), form=document.getElementById('analysis-form');
+    ['dragenter','dragover'].forEach(n=>dropzone.addEventListener(n,e=>{e.preventDefault();dropzone.classList.add('dragging')}));
+    ['dragleave','drop'].forEach(n=>dropzone.addEventListener(n,e=>{e.preventDefault();dropzone.classList.remove('dragging')}));
+    dropzone.addEventListener('drop',e=>{if(e.dataTransfer.files.length){input.files=e.dataTransfer.files;previewFile(input.files[0])}});
+    function previewFile(file){
+      if(!file)return;document.getElementById('filename').textContent=file.name;document.getElementById('file-title').textContent='Spectrum selected';document.getElementById('analyze-button').disabled=false;
+      const reader=new FileReader();reader.onload=()=>drawPreview(reader.result);reader.readAsText(file);
+    }
+    function drawPreview(text){
+      const pts=text.split(/\r?\n/).map(l=>l.trim().split(/[;,\t ]+/).map(Number)).filter(v=>v.length>=2&&Number.isFinite(v[0])&&Number.isFinite(v[1]));
+      document.getElementById('preview-wrap').hidden=false;document.getElementById('point-count').textContent=pts.length+' points';if(pts.length<2)return;
+      const c=document.getElementById('preview-canvas'),ctx=c.getContext('2d'),d=window.devicePixelRatio||1,w=c.clientWidth||720,h=210;c.width=w*d;c.height=h*d;ctx.scale(d,d);
+      const p={l:45,r:15,t:15,b:28},xs=pts.map(v=>v[0]),ys=pts.map(v=>v[1]),xmin=Math.min(...xs),xmax=Math.max(...xs),ymax=Math.max(...ys)||1;
+      ctx.strokeStyle='#dce4ee';ctx.lineWidth=1;for(let i=0;i<5;i++){let y=p.t+i*(h-p.t-p.b)/4;ctx.beginPath();ctx.moveTo(p.l,y);ctx.lineTo(w-p.r,y);ctx.stroke()}
+      ctx.strokeStyle='#2563eb';ctx.lineWidth=1.3;ctx.beginPath();pts.forEach((v,i)=>{let x=p.l+(v[0]-xmin)/(xmax-xmin)*(w-p.l-p.r),y=h-p.b-v[1]/ymax*(h-p.t-p.b);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();
+      ctx.fillStyle='#617087';ctx.font='11px sans-serif';ctx.fillText(xmin.toFixed(1)+' keV',p.l,h-8);ctx.fillText(xmax.toFixed(1)+' keV',w-p.r-48,h-8);
+    }
+    form.addEventListener('submit',()=>{const o=document.getElementById('loading'),b=document.getElementById('progress-bar'),s=document.getElementById('loading-step');o.hidden=false;let i=0,steps=[[12,'Reading spectrum…'],[35,'Resampling energy grid…'],[61,'Detecting elemental signatures…'],[82,'Computing probabilities…'],[94,'Preparing results…']];b.style.width='5%';setInterval(()=>{if(i<steps.length){b.style.width=steps[i][0]+'%';s.textContent=steps[i][1];i++}},380)});
+  </script>
+</body>
+</html>

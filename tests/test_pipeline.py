@@ -1,0 +1,33 @@
+import numpy as np
+
+from fluox.baseline import peak_scores
+from fluox.config import SpectrumConfig
+from fluox.preprocessing import transform_counts
+from fluox.simulator import generate_dataset, simulate_spectrum
+
+
+def test_dataset_is_reproducible_and_multilabel():
+    config = SpectrumConfig(channels=256)
+    e1, x1, y1 = generate_dataset(config, 12, seed=7)
+    e2, x2, y2 = generate_dataset(config, 12, seed=7)
+    np.testing.assert_array_equal(e1, e2)
+    np.testing.assert_array_equal(x1, x2)
+    np.testing.assert_array_equal(y1, y2)
+    assert x1.shape == (12, 256)
+    assert np.all(y1.sum(axis=1) >= 1)
+    assert np.all(y1.sum(axis=1) <= 6)
+
+
+def test_preprocessing_is_finite_and_normalized():
+    transformed = transform_counts(np.array([[0, 1, 10], [10, 0, 3]], dtype=float))
+    assert np.isfinite(transformed).all()
+    np.testing.assert_allclose(np.linalg.norm(transformed, axis=1), 1.0, atol=1e-6)
+
+
+def test_peak_baseline_finds_strong_iron():
+    config = SpectrumConfig(total_counts_min=1_000_000, total_counts_max=1_000_001)
+    iron_index = np.array([config.elements.index("Fe")])
+    energy, counts, labels = simulate_spectrum(config, np.random.default_rng(2), iron_index)
+    scores = peak_scores(energy, counts, config)
+    assert labels[config.elements.index("Fe")] == 1
+    assert scores["Fe"] > 5.0
