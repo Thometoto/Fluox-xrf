@@ -1,4 +1,4 @@
-# FluoX-Mo — Automated Element Identification from XRF Spectra
+# FluoX — Automated Element Identification from XRF Spectra
 
 V1 prototype for a single-point acquisition:
 
