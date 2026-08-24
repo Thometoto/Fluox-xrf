@@ -81,11 +81,11 @@ def main() -> int:
         predictions.append({
             "element": element,
             "energy_kev": DEFAULT_LINES[element][0][0],
-            "probability": round(float(probability), 6),
+            "model_score": round(float(probability), 6),
             "threshold": round(float(threshold), 6),
             "present": bool(probability >= threshold),
         })
-    predictions.sort(key=lambda row: row["probability"], reverse=True)
+    predictions.sort(key=lambda row: row["model_score"], reverse=True)
     detected = [row for row in predictions if row["present"]]
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -98,13 +98,15 @@ def main() -> int:
         "model": str(model_path),
         "detected_elements": [row["element"] for row in detected],
         "predictions": predictions,
-        "warning": "Prototype validated only on synthetic data.",
+        "score_definition": "Sigmoid output of a one-vs-rest logistic classifier; not an experimentally calibrated probability.",
+        "threshold_definition": "Per-element threshold selected to maximize F1 on synthetic validation data.",
+        "warning": "Prototype validated primarily on synthetic data.",
     }
     report_path.write_text(json.dumps(report, indent=2) + "\n")
     plot_spectrum(
         energy, counts, str(plot_path), report["detected_elements"],
         title=f"XRF analysis — {spectrum_path.name} — {args.anode} anode",
-        probabilities={row["element"]: row["probability"] for row in predictions},
+        probabilities={row["element"]: row["model_score"] for row in predictions},
     )
 
     print(f"\nSpectrum:   {spectrum_path}")
@@ -112,11 +114,11 @@ def main() -> int:
     print(f"Model:      {model_path.name}")
     print("\nDETECTED ELEMENTS")
     if detected:
-        print("Element   Energy (keV)   Probability   Threshold")
+        print("Element   Energy (keV)   Model score   Threshold")
         print("-------   ------------   -----------   ---------")
         for row in detected:
             print(f"{row['element']:<7}   {row['energy_kev']:>12.3f}   "
-                  f"{row['probability']:>11.3f}   {row['threshold']:>9.3f}")
+                  f"{row['model_score']:>11.3f}   {row['threshold']:>9.3f}")
     else:
         print("No element is above its decision threshold.")
 
@@ -125,11 +127,12 @@ def main() -> int:
         for row in predictions:
             state = "present" if row["present"] else "absent"
             print(f"{row['element']:<3}  {row['energy_kev']:>6.3f} keV  "
-                  f"{row['probability']:.3f}  {state}")
+                  f"{row['model_score']:.3f}  {state}")
 
     print(f"\nPlot:   {plot_path}")
     print(f"Report: {report_path}")
-    print("\nWarning: exploratory result, not validated on real FluoX measurements.")
+    print("\nScores are not calibrated probabilities. Thresholds maximize per-element F1")
+    print("on synthetic validation data and are not experimental detection limits.")
     return 0
 
 

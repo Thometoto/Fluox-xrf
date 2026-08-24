@@ -4,6 +4,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.DS_Store
 data/*.npz
 data/*.csv
 !data/example_cu.csv

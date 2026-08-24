@@ -5,6 +5,9 @@ from typing import Any, Dict, Tuple
 # Approximate energies (keV) and relative intensities. These values support the
 # prototype; a future version will load them from a versioned atomic database.
 DEFAULT_LINES: Dict[str, Tuple[Tuple[float, float], ...]] = {
+    "P": ((2.014, 1.0), (2.139, 0.10)),
+    "Ar": ((2.958, 1.0), (3.190, 0.11)),
+    "Ca": ((3.692, 1.0), (4.013, 0.13)),
     "Ti": ((4.511, 1.0), (4.932, 0.12)),
     "V": ((4.952, 1.0), (5.427, 0.13)),
     "Cr": ((5.415, 1.0), (5.947, 0.14)),
@@ -36,8 +39,8 @@ ANODE_LINES: Dict[str, Tuple[Tuple[float, float], ...]] = {
 
 @dataclass(frozen=True)
 class SpectrumConfig:
-    energy_min_kev: float = 2.0
-    energy_max_kev: float = 26.0
+    energy_min_kev: float = 1.0
+    energy_max_kev: float = 20.0
     channels: int = 1024
     resolution_fwhm_ev_at_5_9kev: float = 160.0
     min_elements: int = 1
@@ -55,7 +58,12 @@ class SpectrumConfig:
             raise ValueError(f"Unsupported anode material: {self.anode_material}")
         # The anode element is excluded because its sample lines overlap with
         # scattering from the source.
-        return tuple(element for element in DEFAULT_LINES if element != self.anode_material)
+        return tuple(
+            element
+            for element, lines in DEFAULT_LINES.items()
+            if element != self.anode_material
+            and any(self.energy_min_kev <= energy <= self.energy_max_kev for energy, _ in lines)
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

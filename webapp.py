@@ -52,6 +52,7 @@ def spectrum_plot(energy, counts, detected):
     figure = Figure(figsize=(12, 5.2), dpi=110, facecolor="#ffffff")
     axis = figure.add_subplot(111)
     axis.plot(energy, counts, color="#2563eb", linewidth=1.0)
+    axis.set_yscale("log")
     ymax = max(float(counts.max()), 1.0)
     colors = ("#dc2626", "#059669", "#7c3aed", "#ea580c", "#0891b2", "#4f46e5")
     for index, row in enumerate(detected):
@@ -63,7 +64,7 @@ def spectrum_plot(energy, counts, detected):
                           f"{row['element']} ({row['probability']:.2f})", rotation=90,
                           va="top", ha="right", color=color, fontsize=9)
     axis.set_xlabel("Energy (keV)")
-    axis.set_ylabel("Counts")
+    axis.set_ylabel("Counts (log scale)")
     axis.grid(alpha=0.16)
     figure.tight_layout()
     buffer = io.BytesIO()
@@ -103,6 +104,7 @@ def index():
                     "probability": float(probability),
                     "percent": round(float(probability) * 100, 1),
                     "threshold": float(threshold),
+                    "threshold_percent": round(float(threshold) * 100, 1),
                     "primary_energy": DEFAULT_LINES[element][0][0],
                     "line_energies": [line[0] for line in DEFAULT_LINES[element]],
                     "present": bool(probability >= threshold),

@@ -59,9 +59,26 @@ def simulate_spectrum(
     # the sample, intentionally making the anode material non-identifiable.
     scatter_scale = 10.0 ** rng.uniform(-1.2, 0.2)
     for line_energy, relative in ANODE_LINES[config.anode_material]:
+        if not (config.energy_min_kev <= line_energy <= config.energy_max_kev):
+            continue
         width = _sigma_kev(line_energy, config) * rng.uniform(1.2, 2.3)
         center = line_energy + rng.uniform(-0.12, 0.12)
         spectrum += scatter_scale * relative * _gaussian(observed_energy, center, width)
+
+        # Broad Compton component. Its energy follows the photon-scattering
+        # relation for a randomized effective angle and is lower than the
+        # elastic line. This is essential around the Mo K lines, where the
+        # Compton structure overlaps Y/Zr emission regions.
+        angle_rad = np.deg2rad(rng.uniform(55.0, 145.0))
+        compton_center = line_energy / (
+            1.0 + (line_energy / 511.0) * (1.0 - np.cos(angle_rad))
+        )
+        compton_center += rng.uniform(-0.12, 0.12)
+        compton_width = _sigma_kev(line_energy, config) * rng.uniform(2.0, 4.5)
+        compton_scale = scatter_scale * relative * rng.uniform(0.25, 1.1)
+        spectrum += compton_scale * _gaussian(
+            observed_energy, compton_center, compton_width
+        )
 
     spectrum = np.maximum(spectrum, 0.0)
     total_counts = int(rng.integers(config.total_counts_min, config.total_counts_max + 1))

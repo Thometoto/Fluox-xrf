@@ -17,7 +17,14 @@ class TrainedModel:
     config: Dict
 
     def predict_proba(self, counts: np.ndarray) -> np.ndarray:
-        return self.estimator.predict_proba(transform_counts(counts))
+        # Some Accelerate/BLAS versions on macOS emit spurious floating-point
+        # warnings inside the finite linear decision function. The sigmoid
+        # output remains finite; suppress only those low-level warnings here.
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            probabilities = self.estimator.predict_proba(transform_counts(counts))
+        if not np.isfinite(probabilities).all():
+            raise ValueError("The model produced a non-finite score")
+        return probabilities
 
     def predict(self, counts: np.ndarray) -> np.ndarray:
         return self.predict_proba(counts) >= self.thresholds

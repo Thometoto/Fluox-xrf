@@ -3,7 +3,7 @@
 V1 prototype for a single-point acquisition:
 
 ```text
-Energy (keV), Counts → preprocessing → multi-label model → probability per element
+Energy (keV), Counts → preprocessing → multi-label model → score per element
 ```
 
 The project works without experimental data by using a configurable simulator. Results
@@ -39,7 +39,7 @@ fluox-mo predict data/test_fe_ni_cr.csv \
 ```
 
 The first plot marks the ground-truth lines. The second marks only the predicted elements
-and displays their probabilities. The `*.truth.json` file enables automatic comparison.
+and displays their model scores. The `*.truth.json` file enables automatic comparison.
 
 ## Input format
 
@@ -47,15 +47,15 @@ A real input file must contain two numeric columns, with or without a header:
 
 ```csv
 Energy,Counts
-2.000,12
-2.020,15
+1.000,12
+1.020,15
 ```
 
-It must cover the full model energy range, which is 2–26 keV by default.
+It must cover the full model energy range, which is 1–20 keV by default.
 
 ## V1 elements
 
-Ti, V, Cr, Mn, Fe, Co, Ni, Cu, Zn, Ga, As, Se, Rb, Sr, Y, Zr, Pb, Mo, and Ag,
+P, Ar, Ca, Ti, V, Cr, Mn, Fe, Co, Ni, Cu, Zn, Ga, As, Se, Rb, Sr, Y, Zr, Pb, and Mo,
 except for the material used as the tube anode.
 
 The selected tube-anode element is intentionally excluded. Its sample emission lines overlap
@@ -73,6 +73,11 @@ Poisson counting statistics, small calibration errors, and scattering from the M
 - Thresholds learned from synthetic data are not instrument detection limits.
 - A model intended for real measurements must be adapted and validated with standards
   measured on FluoX.
+
+The displayed score is the sigmoid output of an independent one-vs-rest logistic classifier.
+It is not an experimentally calibrated probability. For each element, the decision threshold
+is selected from 0.10 to 0.90 to maximize F1 on synthetic validation data. It is therefore a
+model decision rule, not a universal confidence level or an instrumental detection limit.
 
 The `*.metrics.json` file generated during training reports micro/macro F1, precision,
 recall, and exact match on a held-out synthetic test set.
@@ -126,7 +131,7 @@ model containing the appropriate scattered source lines:
 
 - Cu Kα/Kβ: approximately 8.048/8.905 keV;
 - Mo Kα/Kβ: approximately 17.479/19.608 keV;
-- Ag Kα/Kβ: approximately 22.163/24.942 keV.
+- Ag Kα/Kβ: approximately 22.163/24.942 keV, outside the current 1–20 keV analysis window.
 
 Select the anode that was actually used for the acquisition. The corresponding anode element
 is excluded from the output because it cannot be distinguished reliably from source scattering.

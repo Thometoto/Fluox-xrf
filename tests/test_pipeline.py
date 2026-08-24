@@ -8,6 +8,9 @@ from fluox.simulator import generate_dataset, simulate_spectrum
 
 def test_dataset_is_reproducible_and_multilabel():
     config = SpectrumConfig(channels=256)
+    assert config.energy_min_kev == 1.0
+    assert config.energy_max_kev == 20.0
+    assert {"P", "Ar", "Ca"}.issubset(config.elements)
     e1, x1, y1 = generate_dataset(config, 12, seed=7)
     e2, x2, y2 = generate_dataset(config, 12, seed=7)
     np.testing.assert_array_equal(e1, e2)

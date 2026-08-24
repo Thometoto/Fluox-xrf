@@ -21,7 +21,8 @@ def plot_spectrum(
     """Save a spectrum annotated with the expected emission lines."""
     selected = list(elements)
     fig, ax = plt.subplots(figsize=(12, 5.5))
-    ax.plot(energy, counts, color="#155eef", linewidth=0.9, label="Comptages")
+    ax.plot(energy, counts, color="#155eef", linewidth=0.9, label="Counts")
+    ax.set_yscale("log")
     colors = plt.cm.tab10(np.linspace(0, 1, max(len(selected), 1)))
     ymax = max(float(np.max(counts)), 1.0)
     for color, element in zip(colors, selected):
@@ -34,7 +35,7 @@ def plot_spectrum(
                         suffix = f" ({probabilities[element]:.2f})"
                     ax.text(line_energy, ymax * 0.92, element + suffix, rotation=90,
                             va="top", ha="right", color=color, fontsize=9)
-    ax.set(title=title, xlabel="Energy (keV)", ylabel="Counts")
+    ax.set(title=title, xlabel="Energy (keV)", ylabel="Counts (log scale)")
     ax.set_xlim(float(energy.min()), float(energy.max()))
     ax.grid(alpha=0.18)
     fig.tight_layout()
