@@ -19,14 +19,14 @@ if str(SRC) not in sys.path:
 
 from fluox.config import DEFAULT_LINES, SpectrumConfig  # noqa: E402
 from fluox.plotting import plot_spectrum  # noqa: E402
-from fluox.preprocessing import read_spectrum  # noqa: E402
+from fluox.preprocessing import load_spectrum, read_spectrum  # noqa: E402
 
 
 def parse_args():
     examples = """examples:
   python scripts/analyze_spectrum.py data/example_mo.csv --anode Mo
-  python scripts/analyze_spectrum.py data/example_cu.csv --anode Cu --show-all
-  python scripts/analyze_spectrum.py data/example_ag.csv --anode Ag --output-dir my_results
+  python scripts/analyze_spectrum.py data/example_mo.csv --anode Mo --show-all
+  python scripts/analyze_spectrum.py spectrum.csv --anode Mo --output-dir my_results
 
 The input file must contain two columns: Energy (keV), Counts.
 The selected anode must match the anode used during acquisition.
@@ -38,7 +38,7 @@ The selected anode must match the anode used during acquisition.
     )
     parser.add_argument("spectrum", help="Path to a CSV, TSV, or TXT Energy, Counts file")
     parser.add_argument(
-        "--anode", required=True, choices=("Cu", "Mo", "Ag"),
+        "--anode", required=True, choices=("Mo",),
         help="Tube-anode material used for the acquisition",
     )
     parser.add_argument(
@@ -70,20 +70,32 @@ def main() -> int:
         config = SpectrumConfig.from_dict(model.config)
         if config.anode_material != args.anode:
             raise ValueError("model and selected anode do not match")
-        energy, counts = read_spectrum(str(spectrum_path), config)
-        probabilities = model.predict_proba(counts)[0]
+        _, model_counts = read_spectrum(str(spectrum_path), config)
+        probabilities = model.predict_proba(model_counts)[0]
+        raw_energy, raw_counts = load_spectrum(str(spectrum_path))
+        energy, counts = raw_energy, raw_counts
     except Exception as exc:
         print(f"Analysis error: {exc}", file=sys.stderr)
         return 1
 
     predictions = []
     for element, probability, threshold in zip(model.elements, probabilities, model.thresholds):
+        present = bool(probability >= threshold)
+        if present and element == "Ar":
+            status = "atmospheric"
+        elif present and element in {"Y", "Zr", "Nb"}:
+            status = "uncertain"
+        elif present:
+            status = "present"
+        else:
+            status = "absent"
         predictions.append({
             "element": element,
             "energy_kev": DEFAULT_LINES[element][0][0],
             "model_score": round(float(probability), 6),
             "threshold": round(float(threshold), 6),
-            "present": bool(probability >= threshold),
+            "present": present,
+            "status": status,
         })
     predictions.sort(key=lambda row: row["model_score"], reverse=True)
     detected = [row for row in predictions if row["present"]]
@@ -99,8 +111,10 @@ def main() -> int:
         "detected_elements": [row["element"] for row in detected],
         "predictions": predictions,
         "score_definition": "Sigmoid output of a one-vs-rest logistic classifier; not an experimentally calibrated probability.",
-        "threshold_definition": "Per-element threshold selected to maximize F1 on synthetic validation data.",
-        "warning": "Prototype validated primarily on synthetic data.",
+        "threshold_definition": "Per-element threshold selected to maximize F1 on mixed synthetic and augmented-reference validation data.",
+        "feature_definition": "Full 4096-channel log spectrum, estimated background, background-corrected residual, local line evidence, and Mo-region reliability weighting.",
+        "training_metadata": model.config.get("training_metadata", {}),
+        "warning": "The model was adapted with augmented labeled references; performance on those same source spectra is not an independent validation.",
     }
     report_path.write_text(json.dumps(report, indent=2) + "\n")
     plot_spectrum(
@@ -125,14 +139,14 @@ def main() -> int:
     if args.show_all:
         print("\nALL MODEL OUTPUTS")
         for row in predictions:
-            state = "present" if row["present"] else "absent"
+            state = row["status"]
             print(f"{row['element']:<3}  {row['energy_kev']:>6.3f} keV  "
                   f"{row['model_score']:.3f}  {state}")
 
     print(f"\nPlot:   {plot_path}")
     print(f"Report: {report_path}")
     print("\nScores are not calibrated probabilities. Thresholds maximize per-element F1")
-    print("on synthetic validation data and are not experimental detection limits.")
+    print("on validation data and are not experimental detection limits.")
     return 0
 
 

@@ -6,9 +6,9 @@ V1 prototype for a single-point acquisition:
 Energy (keV), Counts → preprocessing → multi-label model → score per element
 ```
 
-The project works without experimental data by using a configurable simulator. Results
-obtained from synthetic data validate the software pipeline; they are **not an experimental
-validation of the FluoX instrument**.
+The project uses a configurable simulator. The current Mo/air model can derive realistic
+background shapes from laboratory reference spectra, then inject varied synthetic elemental
+signatures. Results are still **not an independent experimental validation of FluoX**.
 
 ## Installation
 
@@ -51,11 +51,14 @@ Energy,Counts
 1.020,15
 ```
 
-It must cover the full model energy range, which is 1–20 keV by default.
+It must cover the model energy range, currently 1–20.7 keV. The complete uploaded
+acquisition is displayed. Channels above 16 keV remain available to the model, but a
+physics-informed reliability prior reduces the influence of the Mo Compton and elastic regions.
 
 ## V1 elements
 
-P, Ar, Ca, Ti, V, Cr, Mn, Fe, Co, Ni, Cu, Zn, Ga, As, Se, Rb, Sr, Y, Zr, Pb, and Mo,
+Na, Mg, Al, Si, P, S, Cl, Ar, K, Ca, Ti, V, Cr, Mn, Fe, Co, Ni, Cu, Zn, Ga,
+As, Se, Br, Rb, Sr, Y, Zr, Nb, Pb, Ba, and Mo,
 except for the material used as the tube anode.
 
 The selected tube-anode element is intentionally excluded. Its sample emission lines overlap
@@ -76,8 +79,13 @@ Poisson counting statistics, small calibration errors, and scattering from the M
 
 The displayed score is the sigmoid output of an independent one-vs-rest logistic classifier.
 It is not an experimentally calibrated probability. For each element, the decision threshold
-is selected from 0.10 to 0.90 to maximize F1 on synthetic validation data. It is therefore a
-model decision rule, not a universal confidence level or an instrumental detection limit.
+is selected from 0.10 to 0.90 to maximize F1 on validation data. It is therefore a model
+decision rule, not a universal confidence level or an instrumental detection limit.
+
+The classifier uses the complete 4,096-channel acquisition through a physics-informed feature
+pipeline: logarithmic counts, an estimated smooth background, the background-corrected
+residual, local evidence around each expected emission line, and a soft reliability weighting
+around the Mo Compton/elastic regions. No energy channel is simply discarded.
 
 The `*.metrics.json` file generated during training reports micro/macro F1, precision,
 recall, and exact match on a held-out synthetic test set.
@@ -91,12 +99,10 @@ model and writes an annotated plot and a JSON report to `outputs/`.
 python scripts/analyze_spectrum.py spectrum.csv --anode Mo
 ```
 
-Complete examples using the three bundled files:
+Complete example using the currently supported Mo/air profile:
 
 ```bash
-python scripts/analyze_spectrum.py data/example_cu.csv --anode Cu
 python scripts/analyze_spectrum.py data/example_mo.csv --anode Mo
-python scripts/analyze_spectrum.py data/example_ag.csv --anode Ag
 ```
 
 Display every model output, including absent elements:
@@ -124,14 +130,39 @@ On macOS, you can also double-click `Launch-FluoX.command`. The browser opens au
 The interface previews the spectrum before analysis and displays a progress bar until the
 results appear.
 
+The current application profile supports a **Mo tube anode with measurements in air**.
+Cu/Ag anodes and vacuum measurements remain visible but disabled until experimental
+reference data are available. Argon is reported as an atmospheric signal. A detected Y or
+Zr signal is marked uncertain because its main usable line lies in the rising Mo-scattering
+region near the upper analysis boundary.
+
+The model uses a fixed 4,096-channel grid between 1 and 20.7 keV. The graph displays every
+original measured point, including points outside the internal interpolation grid.
+
+Reference-derived synthetic training data can be generated locally without committing the
+private laboratory files:
+
+```bash
+fluox-mo generate --anode Mo --samples 5000 \
+  --background path/to/reference_1.csv \
+  --background path/to/reference_2.csv \
+  --labeled-reference 'path/to/reference_1.csv=Si,P,Ar,K,Ca,Fe' \
+  --real-fraction 0.2 \
+  --output data/synthetic_mo_air.npz
+```
+
+Labeled-reference augmentation is an adaptation step, not an independent validation. Source
+spectra used this way must not also be presented as unseen test data; final performance must be
+measured on separate experimental samples.
+
 ### Tube-anode selection
 
 The web interface supports Cu, Mo, and Ag tube anodes. Each option loads a separately trained
 model containing the appropriate scattered source lines:
 
 - Cu Kα/Kβ: approximately 8.048/8.905 keV;
-- Mo Kα/Kβ: approximately 17.479/19.608 keV;
-- Ag Kα/Kβ: approximately 22.163/24.942 keV, outside the current 1–20 keV analysis window.
+- Mo Kα/Kβ: approximately 17.479/19.608 keV, explicitly modeled as source artefacts;
+- Ag Kα/Kβ: approximately 22.163/24.942 keV, outside the current model grid.
 
 Select the anode that was actually used for the acquisition. The corresponding anode element
 is excluded from the output because it cannot be distinguished reliably from source scattering.

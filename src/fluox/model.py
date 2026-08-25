@@ -5,13 +5,21 @@ import numpy as np
 from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import f1_score, precision_score, recall_score
 from sklearn.multiclass import OneVsRestClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
-from .preprocessing import transform_counts
+from .config import SpectrumConfig
+from .preprocessing import extract_features
+
+
+def clip_standardized_features(values):
+    """Limit extrapolation when an experimental spectrum exceeds simulations."""
+    return np.clip(values, -7.0, 7.0)
 
 
 @dataclass
 class TrainedModel:
-    estimator: OneVsRestClassifier
+    estimator: Pipeline
     elements: List[str]
     thresholds: np.ndarray
     config: Dict
@@ -21,7 +29,8 @@ class TrainedModel:
         # warnings inside the finite linear decision function. The sigmoid
         # output remains finite; suppress only those low-level warnings here.
         with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
-            probabilities = self.estimator.predict_proba(transform_counts(counts))
+            config = SpectrumConfig.from_dict(self.config)
+            probabilities = self.estimator.predict_proba(extract_features(counts, config))
         if not np.isfinite(probabilities).all():
             raise ValueError("The model produced a non-finite score")
         return probabilities
@@ -31,15 +40,20 @@ class TrainedModel:
 
 
 def fit_model(x_train, y_train, x_validation, y_validation, elements: Iterable[str], config: Dict):
-    estimator = OneVsRestClassifier(
-        SGDClassifier(loss="log_loss", alpha=2e-5, class_weight="balanced", max_iter=2500,
-                      tol=1e-5, random_state=42, average=True),
-        # Single-process by default for portability on laboratory workstations
-        # and environments with restricted semaphores.
-        n_jobs=1,
+    spectrum_config = SpectrumConfig.from_dict(config)
+    estimator = Pipeline(
+        [
+            ("scale", StandardScaler()),
+            ("clip", FunctionTransformer(clip_standardized_features)),
+            ("classify", OneVsRestClassifier(
+                SGDClassifier(loss="log_loss", alpha=5e-5, class_weight="balanced",
+                              max_iter=2500, tol=1e-5, random_state=42, average=True),
+                n_jobs=1,
+            )),
+        ]
     )
-    estimator.fit(transform_counts(x_train), y_train)
-    probabilities = estimator.predict_proba(transform_counts(x_validation))
+    estimator.fit(extract_features(x_train, spectrum_config), y_train)
+    probabilities = estimator.predict_proba(extract_features(x_validation, spectrum_config))
     thresholds = tune_thresholds(y_validation, probabilities)
     return TrainedModel(estimator, list(elements), thresholds, config)
 

@@ -23,6 +23,7 @@ def simulate_spectrum(
     config: SpectrumConfig,
     rng: np.random.Generator,
     selected: Optional[np.ndarray] = None,
+    background_template: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return (energy, counts, binary labels)."""
     elements = config.elements
@@ -37,16 +38,28 @@ def simulate_spectrum(
     gain = rng.uniform(-config.calibration_gain_fraction, config.calibration_gain_fraction)
     observed_energy = nominal_energy * (1.0 + gain) + shift
 
-    # Empirical background: decreasing continuum with a small slope and offset.
-    decay = rng.uniform(2.5, 8.0)
-    spectrum = rng.uniform(0.03, 0.12) * np.exp(-(observed_energy - config.energy_min_kev) / decay)
-    spectrum += rng.uniform(0.002, 0.02)
-    spectrum += rng.uniform(0.0, 0.006) * (observed_energy - config.energy_min_kev)
+    if background_template is None:
+        # Generic continuum when no experimental reference is supplied.
+        decay = rng.uniform(2.5, 8.0)
+        spectrum = rng.uniform(0.03, 0.12) * np.exp(-(observed_energy - config.energy_min_kev) / decay)
+        spectrum += rng.uniform(0.002, 0.02)
+        spectrum += rng.uniform(0.0, 0.006) * (observed_energy - config.energy_min_kev)
+    else:
+        template = np.asarray(background_template, dtype=float)
+        if template.shape != nominal_energy.shape:
+            raise ValueError("Background template does not match the model grid")
+        template = np.maximum(template, 0.0)
+        template /= max(float(template.max()), 1e-12)
+        spectrum = template * rng.uniform(0.035, 0.16) + rng.uniform(0.002, 0.015)
+        spectrum *= rng.uniform(0.8, 1.2) + rng.uniform(-0.015, 0.015) * (
+            observed_energy - observed_energy.mean()
+        )
 
     # Element contributions with log-uniform concentrations.
     for idx in selected:
         element = elements[int(idx)]
-        abundance = 10.0 ** rng.uniform(-1.3, 0.5)
+        # Include trace-like peaks as well as major components.
+        abundance = 10.0 ** rng.uniform(-2.1, 0.5)
         matrix_attenuation = rng.uniform(0.55, 1.15)
         for line_energy, relative in DEFAULT_LINES[element]:
             if config.energy_min_kev <= line_energy <= config.energy_max_kev:
@@ -57,13 +70,13 @@ def simulate_spectrum(
 
     # Scattering of source-anode lines varies independently of that element in
     # the sample, intentionally making the anode material non-identifiable.
-    scatter_scale = 10.0 ** rng.uniform(-1.2, 0.2)
+    scatter_scale = 10.0 ** rng.uniform(-1.5 if background_template is not None else -1.2,
+                                       -0.15 if background_template is not None else 0.2)
     for line_energy, relative in ANODE_LINES[config.anode_material]:
-        if not (config.energy_min_kev <= line_energy <= config.energy_max_kev):
-            continue
-        width = _sigma_kev(line_energy, config) * rng.uniform(1.2, 2.3)
-        center = line_energy + rng.uniform(-0.12, 0.12)
-        spectrum += scatter_scale * relative * _gaussian(observed_energy, center, width)
+        if config.energy_min_kev <= line_energy <= config.energy_max_kev:
+            width = _sigma_kev(line_energy, config) * rng.uniform(1.2, 2.3)
+            center = line_energy + rng.uniform(-0.12, 0.12)
+            spectrum += scatter_scale * relative * _gaussian(observed_energy, center, width)
 
         # Broad Compton component. Its energy follows the photon-scattering
         # relation for a randomized effective angle and is lower than the
@@ -76,22 +89,34 @@ def simulate_spectrum(
         compton_center += rng.uniform(-0.12, 0.12)
         compton_width = _sigma_kev(line_energy, config) * rng.uniform(2.0, 4.5)
         compton_scale = scatter_scale * relative * rng.uniform(0.25, 1.1)
-        spectrum += compton_scale * _gaussian(
-            observed_energy, compton_center, compton_width
-        )
+        # Keep the low-energy tail when a Compton structure lies just above
+        # the analysis boundary (notably for a Mo tube).
+        if compton_center - 5.0 * compton_width <= config.energy_max_kev:
+            spectrum += compton_scale * _gaussian(
+                observed_energy, compton_center, compton_width
+            )
 
     spectrum = np.maximum(spectrum, 0.0)
-    total_counts = int(rng.integers(config.total_counts_min, config.total_counts_max + 1))
+    total_counts = int(10.0 ** rng.uniform(np.log10(config.total_counts_min),
+                                          np.log10(config.total_counts_max)))
     expected = spectrum / spectrum.sum() * total_counts
     counts = rng.poisson(expected).astype(np.float32)
     return nominal_energy.astype(np.float32), counts, labels
 
 
-def generate_dataset(config: SpectrumConfig, samples: int, seed: Optional[int] = None):
+def generate_dataset(
+    config: SpectrumConfig,
+    samples: int,
+    seed: Optional[int] = None,
+    background_templates: Optional[np.ndarray] = None,
+):
     rng = np.random.default_rng(config.random_seed if seed is None else seed)
     x = np.empty((samples, config.channels), dtype=np.float32)
     y = np.empty((samples, len(config.elements)), dtype=np.uint8)
     energy = energy_grid(config).astype(np.float32)
     for i in range(samples):
-        _, x[i], y[i] = simulate_spectrum(config, rng)
+        template = None
+        if background_templates is not None and len(background_templates):
+            template = background_templates[int(rng.integers(len(background_templates)))]
+        _, x[i], y[i] = simulate_spectrum(config, rng, background_template=template)
     return energy, x, y

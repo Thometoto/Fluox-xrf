@@ -23,6 +23,9 @@ def plot_spectrum(
     fig, ax = plt.subplots(figsize=(12, 5.5))
     ax.plot(energy, counts, color="#155eef", linewidth=0.9, label="Counts")
     ax.set_yscale("log")
+    ax.axvspan(16.35, 17.05, color="#f59e0b", alpha=0.09)
+    ax.axvspan(17.22, 17.72, color="#dc2626", alpha=0.07)
+    ax.axvspan(19.30, 19.90, color="#dc2626", alpha=0.05)
     colors = plt.cm.tab10(np.linspace(0, 1, max(len(selected), 1)))
     ymax = max(float(np.max(counts)), 1.0)
     for color, element in zip(colors, selected):

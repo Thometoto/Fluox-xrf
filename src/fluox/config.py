@@ -5,8 +5,15 @@ from typing import Any, Dict, Tuple
 # Approximate energies (keV) and relative intensities. These values support the
 # prototype; a future version will load them from a versioned atomic database.
 DEFAULT_LINES: Dict[str, Tuple[Tuple[float, float], ...]] = {
+    "Na": ((1.041, 1.0), (1.071, 0.05)),
+    "Mg": ((1.254, 1.0), (1.302, 0.05)),
+    "Al": ((1.487, 1.0), (1.557, 0.05)),
+    "Si": ((1.740, 1.0), (1.836, 0.05)),
     "P": ((2.014, 1.0), (2.139, 0.10)),
+    "S": ((2.308, 1.0), (2.464, 0.10)),
+    "Cl": ((2.622, 1.0), (2.816, 0.11)),
     "Ar": ((2.958, 1.0), (3.190, 0.11)),
+    "K": ((3.314, 1.0), (3.590, 0.12)),
     "Ca": ((3.692, 1.0), (4.013, 0.13)),
     "Ti": ((4.511, 1.0), (4.932, 0.12)),
     "V": ((4.952, 1.0), (5.427, 0.13)),
@@ -20,12 +27,15 @@ DEFAULT_LINES: Dict[str, Tuple[Tuple[float, float], ...]] = {
     "Ga": ((9.251, 1.0), (10.264, 0.17)),
     "As": ((10.544, 1.0), (11.726, 0.18)),
     "Se": ((11.222, 1.0), (12.496, 0.18)),
+    "Br": ((11.924, 1.0), (13.292, 0.19)),
     "Rb": ((13.395, 1.0), (14.961, 0.19)),
     "Sr": ((14.165, 1.0), (15.835, 0.19)),
     "Y": ((14.958, 1.0), (16.738, 0.20)),
     "Zr": ((15.775, 1.0), (17.668, 0.20)),
+    "Nb": ((16.615, 1.0), (18.623, 0.20)),
     # Pb L lines fall within the usual measurement range.
     "Pb": ((10.552, 0.45), (12.614, 1.0), (14.765, 0.28)),
+    "Ba": ((4.466, 1.0), (4.828, 0.70)),
     "Mo": ((17.480, 1.0), (19.608, 0.52)),
     "Ag": ((22.163, 1.0), (24.942, 0.48)),
 }
@@ -40,13 +50,13 @@ ANODE_LINES: Dict[str, Tuple[Tuple[float, float], ...]] = {
 @dataclass(frozen=True)
 class SpectrumConfig:
     energy_min_kev: float = 1.0
-    energy_max_kev: float = 20.0
-    channels: int = 1024
+    energy_max_kev: float = 20.7
+    channels: int = 4096
     resolution_fwhm_ev_at_5_9kev: float = 160.0
     min_elements: int = 1
-    max_elements: int = 6
-    total_counts_min: int = 20_000
-    total_counts_max: int = 250_000
+    max_elements: int = 16
+    total_counts_min: int = 50_000
+    total_counts_max: int = 10_000_000
     calibration_shift_ev: float = 25.0
     calibration_gain_fraction: float = 0.0015
     random_seed: int = 42

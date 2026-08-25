@@ -23,15 +23,19 @@ from flask import Flask, render_template, request  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
 from fluox.config import DEFAULT_LINES, SpectrumConfig  # noqa: E402
-from fluox.preprocessing import read_spectrum  # noqa: E402
+from fluox.preprocessing import load_spectrum, read_spectrum  # noqa: E402
 
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
-MODEL_PATHS = {
-    material: PROJECT_ROOT / "models" / f"fluox-{material.lower()}.joblib"
-    for material in ("Cu", "Mo", "Ag")
-}
+MODEL_PATHS = {"Mo": PROJECT_ROOT / "models" / "fluox-mo.joblib"}
+
+
+@app.after_request
+def disable_result_cache(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 def load_model(anode_material):
@@ -53,6 +57,9 @@ def spectrum_plot(energy, counts, detected):
     axis = figure.add_subplot(111)
     axis.plot(energy, counts, color="#2563eb", linewidth=1.0)
     axis.set_yscale("log")
+    axis.axvspan(16.35, 17.05, color="#f59e0b", alpha=0.09)
+    axis.axvspan(17.22, 17.72, color="#dc2626", alpha=0.07)
+    axis.axvspan(19.30, 19.90, color="#dc2626", alpha=0.05)
     ymax = max(float(counts.max()), 1.0)
     colors = ("#dc2626", "#059669", "#7c3aed", "#ea580c", "#0891b2", "#4f46e5")
     for index, row in enumerate(detected):
@@ -75,8 +82,9 @@ def spectrum_plot(energy, counts, detected):
 @app.route("/", methods=["GET", "POST"])
 def index():
     selected_anode = request.form.get("anode", "Mo")
+    atmosphere = request.form.get("atmosphere", "air")
     context = {"predictions": None, "detected": [], "plot": None, "error": None,
-               "selected_anode": selected_anode}
+               "selected_anode": selected_anode, "atmosphere": atmosphere}
     if request.method == "POST":
         uploaded = request.files.get("spectrum")
         if uploaded is None or not uploaded.filename:
@@ -88,17 +96,32 @@ def index():
             return render_template("index.html", **context)
         temporary_path = None
         try:
+            if selected_anode != "Mo":
+                raise ValueError("Only the Mo-anode profile is currently available")
+            if atmosphere != "air":
+                raise ValueError("Only measurements in air are currently supported")
             model = load_model(selected_anode)
             config = SpectrumConfig.from_dict(model.config)
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary:
                 uploaded.save(temporary)
                 temporary_path = temporary.name
-            energy, counts = read_spectrum(temporary_path, config)
-            probabilities = model.predict_proba(counts)[0]
+            _, model_counts = read_spectrum(temporary_path, config)
+            probabilities = model.predict_proba(model_counts)[0]
+            raw_energy, raw_counts = load_spectrum(temporary_path)
+            energy, counts = raw_energy, raw_counts
             predictions = []
             for element, probability, threshold in zip(
                 model.elements, probabilities, model.thresholds
             ):
+                present = bool(probability >= threshold)
+                if present and element == "Ar":
+                    status = "atmospheric"
+                elif present and element in {"Y", "Zr", "Nb"}:
+                    status = "uncertain"
+                elif present:
+                    status = "present"
+                else:
+                    status = "absent"
                 predictions.append({
                     "element": element,
                     "probability": float(probability),
@@ -107,12 +130,14 @@ def index():
                     "threshold_percent": round(float(threshold) * 100, 1),
                     "primary_energy": DEFAULT_LINES[element][0][0],
                     "line_energies": [line[0] for line in DEFAULT_LINES[element]],
-                    "present": bool(probability >= threshold),
+                    "present": present,
+                    "status": status,
                 })
             predictions.sort(key=lambda row: row["probability"], reverse=True)
             detected = [row for row in predictions if row["present"]]
             context.update(filename=uploaded.filename, predictions=predictions,
-                           detected=detected, plot=spectrum_plot(energy, counts, detected))
+                           detected=detected, plot=spectrum_plot(energy, counts, detected),
+                           displayed_points=len(energy), model_channels=config.channels)
         except Exception as exc:
             context["error"] = str(exc)
         finally:

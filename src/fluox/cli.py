@@ -4,21 +4,88 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+from scipy.ndimage import gaussian_filter1d, percentile_filter
 from sklearn.model_selection import train_test_split
 
 from .baseline import peak_scores
 from .config import SpectrumConfig
 from .model import fit_model, metrics
 from .plotting import plot_spectrum
-from .preprocessing import read_spectrum
-from .simulator import generate_dataset, simulate_spectrum
+from .preprocessing import load_spectrum, read_spectrum
+from .simulator import energy_grid, generate_dataset, simulate_spectrum
 
 
-def _save_dataset(path: str, config: SpectrumConfig, samples: int, seed: int, example_csv: str = ""):
-    energy, x, y = generate_dataset(config, samples, seed)
+def _background_templates(paths, config):
+    if not paths:
+        return None
+    grid = np.linspace(config.energy_min_kev, config.energy_max_kev, config.channels)
+    templates = []
+    for path in paths:
+        energy, counts = load_spectrum(path)
+        sampled = np.interp(grid, energy, counts)
+        # Remove narrow fluorescence peaks while retaining the measured
+        # continuum and the broad rise caused by Mo scattering.
+        points_per_kev = config.channels / (config.energy_max_kev - config.energy_min_kev)
+        window = max(31, int(round(0.55 * points_per_kev)) | 1)
+        baseline = percentile_filter(sampled, percentile=25, size=window, mode="nearest")
+        baseline = gaussian_filter1d(baseline, sigma=max(2.0, points_per_kev * 0.035))
+        templates.append(np.maximum(baseline, 0.0))
+    return np.asarray(templates, dtype=np.float32)
+
+
+def _parse_labeled_references(specifications, config):
+    references = []
+    for specification in specifications:
+        if "=" not in specification:
+            raise ValueError("A labeled reference must use PATH=Si,P,Fe format")
+        path, elements_text = specification.split("=", 1)
+        elements = [item.strip() for item in elements_text.split(",") if item.strip()]
+        unknown = sorted(set(elements) - set(config.elements))
+        if unknown:
+            raise ValueError(f"Unsupported labeled elements: {', '.join(unknown)}")
+        _, counts = read_spectrum(path, config)
+        labels = np.zeros(len(config.elements), dtype=np.uint8)
+        for element in elements:
+            labels[config.elements.index(element)] = 1
+        references.append((counts.astype(np.float64), labels))
+    return references
+
+
+def _add_real_augmentations(x, y, references, fraction, seed, config):
+    if not references or fraction <= 0:
+        return x, y
+    rng = np.random.default_rng(seed + 7919)
+    count = min(len(x), max(len(references), int(round(len(x) * fraction))))
+    grid = energy_grid(config)
+    for output_index in range(len(x) - count, len(x)):
+        base, labels = references[int(rng.integers(len(references)))]
+        shift = rng.uniform(-0.018, 0.018)
+        shifted = np.interp(grid + shift, grid, base, left=base[0], right=base[-1])
+        scale = 10.0 ** rng.uniform(-0.30, 0.30)
+        tilt = 1.0 + rng.uniform(-0.08, 0.08) * (grid - grid.mean()) / np.ptp(grid)
+        expected = np.maximum(shifted * scale * tilt, 0.0)
+        x[output_index] = rng.poisson(expected).astype(np.float32)
+        y[output_index] = labels
+    order = rng.permutation(len(x))
+    return x[order], y[order]
+
+
+def _save_dataset(path: str, config: SpectrumConfig, samples: int, seed: int,
+                  example_csv: str = "", backgrounds=(), labeled_references=(),
+                  real_fraction: float = 0.2):
+    templates = _background_templates(backgrounds, config)
+    energy, x, y = generate_dataset(config, samples, seed, templates)
+    references = _parse_labeled_references(labeled_references, config)
+    x, y = _add_real_augmentations(x, y, references, real_fraction, seed, config)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
+    training_metadata = {
+        "background_reference_count": len(backgrounds),
+        "labeled_reference_count": len(labeled_references),
+        "real_augmentation_fraction": real_fraction if labeled_references else 0.0,
+    }
     np.savez_compressed(path, energy=energy, counts=x, labels=y,
-                        elements=np.asarray(config.elements), config=json.dumps(config.to_dict()))
+                        elements=np.asarray(config.elements), config=json.dumps(config.to_dict()),
+                        training_metadata=json.dumps(training_metadata))
     print(f"Dataset created: {path} ({samples} spectra, {len(config.elements)} elements)")
     if example_csv:
         Path(example_csv).parent.mkdir(parents=True, exist_ok=True)
@@ -41,7 +108,10 @@ def _train(dataset: str, output: str, seed: int):
     x_train, x_val, y_train, y_val = train_test_split(
         x_train, y_train, test_size=0.2, random_state=seed
     )
-    model = fit_model(x_train, y_train, x_val, y_val, data["elements"].tolist(), config.to_dict())
+    model_config = config.to_dict()
+    if "training_metadata" in data.files:
+        model_config["training_metadata"] = json.loads(str(data["training_metadata"]))
+    model = fit_model(x_train, y_train, x_val, y_val, data["elements"].tolist(), model_config)
     report = metrics(y_test, model.predict_proba(x_test), model.thresholds)
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, output)
@@ -104,6 +174,18 @@ def main():
     generate.add_argument("--seed", type=int, default=42)
     generate.add_argument("--anode", choices=("Cu", "Mo", "Ag"), default="Mo")
     generate.add_argument("--example-csv", default="", help="Also export the first spectrum as CSV")
+    generate.add_argument(
+        "--background", action="append", default=[], metavar="SPECTRUM",
+        help="Use a real spectrum to derive the background (repeatable)",
+    )
+    generate.add_argument(
+        "--labeled-reference", action="append", default=[], metavar="PATH=ELEMENTS",
+        help="Add augmented real spectra with known labels (repeatable)",
+    )
+    generate.add_argument(
+        "--real-fraction", type=float, default=0.2,
+        help="Fraction replaced by labeled-real augmentations (default: 0.2)",
+    )
     train = sub.add_parser("train", help="Train and evaluate the model")
     train.add_argument("--dataset", default="data/synthetic.npz")
     train.add_argument("--output", default="models/fluox.joblib")
@@ -121,7 +203,9 @@ def main():
     predict.add_argument("--plot", default="", help="Save an annotated PNG plot")
     args = parser.parse_args()
     if args.command == "generate":
-        _save_dataset(args.output, SpectrumConfig(anode_material=args.anode), args.samples, args.seed, args.example_csv)
+        _save_dataset(args.output, SpectrumConfig(anode_material=args.anode), args.samples,
+                      args.seed, args.example_csv, args.background,
+                      args.labeled_reference, args.real_fraction)
     elif args.command == "train":
         _train(args.dataset, args.output, args.seed)
     elif args.command == "simulate":

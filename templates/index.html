@@ -23,11 +23,18 @@
       <form method="post" enctype="multipart/form-data" class="upload-card" id="analysis-form">
         <label class="anode-field" for="anode"><span>Tube anode</span>
           <select id="anode" name="anode">
-            {% for material in ('Cu', 'Mo', 'Ag') %}
-            <option value="{{ material }}" {% if selected_anode == material %}selected{% endif %}>{{ material }}</option>
-            {% endfor %}
+            <option value="Mo" selected>Mo</option>
+            <option value="Cu" disabled>Cu — coming soon</option>
+            <option value="Ag" disabled>Ag — coming soon</option>
           </select>
-          <small>The matching source model will be used</small>
+          <small>Validated profile currently available</small>
+        </label>
+        <label class="anode-field" for="atmosphere"><span>Atmosphere</span>
+          <select id="atmosphere" name="atmosphere">
+            <option value="air" selected>Air</option>
+            <option value="vacuum" disabled>Vacuum — coming soon</option>
+          </select>
+          <small>Argon is interpreted as an atmospheric signal</small>
         </label>
         <div class="dropzone" id="dropzone">
           <span class="upload-icon">↑</span>
@@ -57,10 +64,10 @@
 
       <div class="detected-grid">
         {% for row in detected %}
-        <article class="element-card">
+        <article class="element-card status-{{ row.status }}">
           <div class="symbol">{{ row.element }}</div>
-          <div><strong>{{ row.percent }} %</strong><small>model score · threshold {{ row.threshold_percent }} %</small><span class="energy">{{ "%.3f"|format(row.primary_energy) }} keV</span></div>
-          <span class="check">✓</span>
+          <div><strong>{{ row.percent }} %</strong><small>{% if row.status == 'atmospheric' %}atmospheric signal{% elif row.status == 'uncertain' %}uncertain · Mo scattering region{% else %}model score · threshold {{ row.threshold_percent }} %{% endif %}</small><span class="energy">{{ "%.3f"|format(row.primary_energy) }} keV</span></div>
+          <span class="check">{% if row.status == 'uncertain' %}~{% elif row.status == 'atmospheric' %}air{% else %}✓{% endif %}</span>
         </article>
         {% else %}
         <p class="empty">No element is above its decision threshold.</p>
@@ -69,12 +76,12 @@
 
       <div class="analysis-grid">
         <article class="panel spectrum-panel">
-          <div class="panel-title"><h3>Energy spectrum</h3><span>Log scale · predicted lines shown as dashed markers</span></div>
+          <div class="panel-title"><h3>Energy spectrum</h3><span>Log scale · {{ displayed_points }} measured points displayed · {{ model_channels }}-channel model grid</span></div>
           <img src="data:image/png;base64,{{ plot }}" alt="Annotated XRF spectrum">
         </article>
 
         <article class="panel probability-panel">
-          <div class="panel-title"><h3>All model scores</h3><span>Element-specific synthetic thresholds</span></div>
+          <div class="panel-title"><h3>All model scores</h3><span>Element-specific profile thresholds</span></div>
           <div class="probability-list">
           {% for row in predictions %}
             <div class="probability-row {% if row.present %}is-present{% endif %}">
@@ -82,16 +89,15 @@
               <div class="bar"><i style="width: {{ row.percent }}%"></i></div>
               <strong>{{ row.percent }} %</strong>
               <span class="row-energy">{{ "%.3f"|format(row.primary_energy) }} keV</span>
-              <span class="decision">{% if row.present %}present{% else %}absent{% endif %}<small>T {{ row.threshold_percent }}%</small></span>
+              <span class="decision">{{ row.status }}<small>T {{ row.threshold_percent }}%</small></span>
             </div>
           {% endfor %}
           </div>
+          <p class="threshold-help">T is the element-specific decision threshold learned on validation data. Y, Zr and Nb are reported as uncertain when detected because their lines overlap the Mo scattering region. Scores are not calibrated experimental probabilities.</p>
         </article>
       </div>
     </section>
     {% endif %}
-
-    <aside class="warning"><strong>Scientific prototype</strong> Scores and thresholds come from synthetic validation data; they are not experimentally calibrated probabilities or detection limits. The tube-anode element itself is excluded.</aside>
   </main>
   <div class="loading-overlay" id="loading" hidden>
     <div class="loading-card">
