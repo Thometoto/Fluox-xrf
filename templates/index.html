@@ -10,13 +10,12 @@
   <header class="topbar">
     <div class="brand"><span class="brand-mark">Fx</span><span>FluoX–Mo</span></div>
     <p>Automated elemental identification</p>
-    <span class="local-badge">● Local analysis</span>
   </header>
 
   <main>
     <section class="hero">
       <div>
-        <p class="eyebrow">XRF SPECTROMETRY · Mo ANODE</p>
+        <p class="eyebrow">XRF SPECTROMETRY</p>
         <h1>Upload a spectrum.<br><span>Identify its elements.</span></h1>
         <p class="intro">Load a calibrated file containing two columns: energy in keV and counts.</p>
       </div>
@@ -66,7 +65,7 @@
         {% for row in detected %}
         <article class="element-card status-{{ row.status }}">
           <div class="symbol">{{ row.element }}</div>
-          <div><strong>{{ row.percent }} %</strong><small>{% if row.status == 'atmospheric' %}atmospheric signal{% elif row.status == 'uncertain' %}uncertain · Mo scattering region{% else %}model score · threshold {{ row.threshold_percent }} %{% endif %}</small><span class="energy">{{ "%.3f"|format(row.primary_energy) }} keV</span></div>
+          <div><strong>{{ row.percent }} %</strong><small>{% if row.status == 'atmospheric' %}atmospheric signal{% elif row.status == 'uncertain' %}uncertain · Mo scattering region{% else %} threshold {{ row.threshold_percent }} %{% endif %}</small><span class="energy">{{ "%.3f"|format(row.primary_energy) }} keV</span></div>
           <span class="check">{% if row.status == 'uncertain' %}~{% elif row.status == 'atmospheric' %}air{% else %}✓{% endif %}</span>
         </article>
         {% else %}
@@ -93,7 +92,6 @@
             </div>
           {% endfor %}
           </div>
-          <p class="threshold-help">T is the element-specific decision threshold learned on validation data. Y, Zr and Nb are reported as uncertain when detected because their lines overlap the Mo scattering region. Scores are not calibrated experimental probabilities.</p>
         </article>
       </div>
     </section>
