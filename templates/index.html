@@ -65,8 +65,8 @@
         {% for row in detected %}
         <article class="element-card status-{{ row.status }}">
           <div class="symbol">{{ row.element }}</div>
-          <div><strong>{{ row.percent }} %</strong><small>{% if row.status == 'atmospheric' %}atmospheric signal{% elif row.status == 'uncertain' %}uncertain · Mo scattering region{% else %} threshold {{ row.threshold_percent }} %{% endif %}</small><span class="energy">{{ "%.3f"|format(row.primary_energy) }} keV</span></div>
-          <span class="check">{% if row.status == 'uncertain' %}~{% elif row.status == 'atmospheric' %}air{% else %}✓{% endif %}</span>
+          <div><strong>{{ row.primary_line_type }} peak · {{ row.percent }}%</strong><small>{{ "%.3f"|format(row.primary_energy) }} keV</small><span class="energy">Recognition score</span></div>
+          <span class="check">{% if row.status in ('uncertain', 'trace', 'ambiguous') %}~{% else %}✓{% endif %}</span>
         </article>
         {% else %}
         <p class="empty">No element is above its decision threshold.</p>
@@ -83,12 +83,12 @@
           <div class="panel-title"><h3>All model scores</h3><span>Element-specific profile thresholds</span></div>
           <div class="probability-list">
           {% for row in predictions %}
-            <div class="probability-row {% if row.present %}is-present{% endif %}">
+            <div class="probability-row {% if row.active %}is-present{% endif %}">
               <span class="mini-symbol">{{ row.element }}</span>
               <div class="bar"><i style="width: {{ row.percent }}%"></i></div>
               <strong>{{ row.percent }} %</strong>
               <span class="row-energy">{{ "%.3f"|format(row.primary_energy) }} keV</span>
-              <span class="decision">{{ row.status }}<small>T {{ row.threshold_percent }}%</small></span>
+              <span class="decision">{{ row.primary_line_type }}<small>peak type</small></span>
             </div>
           {% endfor %}
           </div>

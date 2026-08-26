@@ -21,16 +21,22 @@ def transform_counts(counts: np.ndarray) -> np.ndarray:
 
 
 def estimate_background(counts: np.ndarray, config: SpectrumConfig) -> np.ndarray:
-    """Estimate a smooth continuum while rejecting narrow fluorescence peaks."""
+    """Estimate a nonlinear continuum with a compact SNIP-style algorithm."""
     values = np.asarray(counts, dtype=np.float64)
     if values.ndim == 1:
         values = values[None, :]
     log_counts = np.log1p(np.maximum(values, 0.0))
     points_per_kev = config.channels / (config.energy_max_kev - config.energy_min_kev)
-    minimum_size = max(9, int(round(0.22 * points_per_kev)) | 1)
-    smooth_sigma = max(2.0, 0.08 * points_per_kev)
-    opened = minimum_filter1d(log_counts, size=minimum_size, axis=1, mode="nearest")
-    return gaussian_filter1d(opened, sigma=smooth_sigma, axis=1, mode="nearest")
+    minimum_size = max(9, int(round(0.16 * points_per_kev)) | 1)
+    smooth_sigma = max(2.0, 0.055 * points_per_kev)
+    baseline = minimum_filter1d(log_counts, size=minimum_size, axis=1, mode="nearest")
+    max_shift = max(4, int(round(0.30 * points_per_kev)))
+    shifts = np.unique(np.geomspace(2, max_shift, 10).astype(int))[::-1]
+    for shift in shifts:
+        center = baseline[:, shift:-shift]
+        clipped = 0.5 * (baseline[:, :-2 * shift] + baseline[:, 2 * shift:])
+        center[:] = np.minimum(center, clipped)
+    return gaussian_filter1d(baseline, sigma=smooth_sigma, axis=1, mode="nearest")
 
 
 def energy_reliability(config: SpectrumConfig) -> np.ndarray:

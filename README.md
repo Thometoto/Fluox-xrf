@@ -8,7 +8,8 @@ Energy (keV), Counts → preprocessing → multi-label model → score per eleme
 
 The project uses a configurable simulator. The current Mo/air model can derive realistic
 background shapes from laboratory reference spectra, then inject varied synthetic elemental
-signatures. Results are still **not an independent experimental validation of FluoX**.
+signatures. The current model has also been adapted with five labeled Mo/air laboratory
+spectra. This improves realism but is not, by itself, independent experimental validation.
 
 ## Installation
 
@@ -86,6 +87,25 @@ The classifier uses the complete 4,096-channel acquisition through a physics-inf
 pipeline: logarithmic counts, an estimated smooth background, the background-corrected
 residual, local evidence around each expected emission line, and a soft reliability weighting
 around the Mo Compton/elastic regions. No energy channel is simply discarded.
+
+The background is estimated with a nonlinear SNIP-style procedure, so the analysis does not
+assume a straight baseline. Expected K or L lines are then inspected separately to provide
+an interpretable local peak-evidence indicator. This evidence qualifies the classifier result;
+it does not create a detection by itself because line windows overlap in crowded spectra.
+
+Results are reported as **detected**, **possible trace**, **ambiguous**, **uncertain**, or
+**air signal**. Argon is identified as an atmospheric contribution. Arsenic is flagged as
+ambiguous when Pb or Br is also active, and Ba is flagged when Ti can explain the same region.
+Lead is modeled using its L lines.
+
+### Experimental cross-validation
+
+Four closely related clay spectra were evaluated with leave-one-spectrum-out validation: each
+file was excluded from adaptation in turn and predicted by a newly trained model. Across the
+four held-out files, 69 of 70 expected element labels were recovered (98.6% recall) with no
+additional confirmed element (100% precision). Sulfur in one held-out clay was the only miss.
+These results are encouraging but remain preliminary because the validation set is small and
+the four matrices are very similar.
 
 The `*.metrics.json` file generated during training reports micro/macro F1, precision,
 recall, and exact match on a held-out synthetic test set.

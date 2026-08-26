@@ -23,6 +23,7 @@ from flask import Flask, render_template, request  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
 from fluox.config import DEFAULT_LINES, SpectrumConfig  # noqa: E402
+from fluox.interpretation import interpret_predictions  # noqa: E402
 from fluox.preprocessing import load_spectrum, read_spectrum  # noqa: E402
 
 
@@ -106,35 +107,10 @@ def index():
                 uploaded.save(temporary)
                 temporary_path = temporary.name
             _, model_counts = read_spectrum(temporary_path, config)
-            probabilities = model.predict_proba(model_counts)[0]
             raw_energy, raw_counts = load_spectrum(temporary_path)
             energy, counts = raw_energy, raw_counts
-            predictions = []
-            for element, probability, threshold in zip(
-                model.elements, probabilities, model.thresholds
-            ):
-                present = bool(probability >= threshold)
-                if present and element == "Ar":
-                    status = "atmospheric"
-                elif present and element in {"Y", "Zr", "Nb"}:
-                    status = "uncertain"
-                elif present:
-                    status = "present"
-                else:
-                    status = "absent"
-                predictions.append({
-                    "element": element,
-                    "probability": float(probability),
-                    "percent": round(float(probability) * 100, 1),
-                    "threshold": float(threshold),
-                    "threshold_percent": round(float(threshold) * 100, 1),
-                    "primary_energy": DEFAULT_LINES[element][0][0],
-                    "line_energies": [line[0] for line in DEFAULT_LINES[element]],
-                    "present": present,
-                    "status": status,
-                })
-            predictions.sort(key=lambda row: row["probability"], reverse=True)
-            detected = [row for row in predictions if row["present"]]
+            predictions = interpret_predictions(model, config, model_counts)
+            detected = [row for row in predictions if row["active"]]
             context.update(filename=uploaded.filename, predictions=predictions,
                            detected=detected, plot=spectrum_plot(energy, counts, detected),
                            displayed_points=len(energy), model_channels=config.channels)

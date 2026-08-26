@@ -1,7 +1,8 @@
 import numpy as np
 
-from fluox.baseline import peak_scores
+from fluox.baseline import multi_line_evidence, peak_scores
 from fluox.config import SpectrumConfig
+from fluox.interpretation import interpret_predictions
 from fluox.preprocessing import energy_reliability, estimate_background, extract_features, transform_counts
 from fluox.simulator import generate_dataset, simulate_spectrum
 
@@ -50,3 +51,51 @@ def test_peak_baseline_finds_strong_iron():
     scores = peak_scores(energy, counts, config)
     assert labels[config.elements.index("Fe")] == 1
     assert scores["Fe"] > 3.0
+
+
+def test_multi_line_evidence_is_finite():
+    config = SpectrumConfig(channels=256, total_counts_min=1_000_000,
+                            total_counts_max=1_000_001)
+    iron_index = np.array([config.elements.index("Fe")])
+    _, counts, _ = simulate_spectrum(config, np.random.default_rng(3), iron_index)
+    evidence = multi_line_evidence(counts, config)
+    assert set(evidence) == set(config.elements)
+    assert evidence["Fe"]["supported_lines"] >= 1
+    assert np.isfinite([row["max_snr"] for row in evidence.values()]).all()
+
+
+def test_interpretation_marks_argon_as_atmospheric():
+    config = SpectrumConfig(channels=256)
+
+    class DummyModel:
+        elements = config.elements
+        thresholds = np.full(len(config.elements), 0.5)
+
+        def predict_proba(self, counts):
+            scores = np.zeros((1, len(self.elements)))
+            scores[0, self.elements.index("Ar")] = 0.9
+            return scores
+
+    rows = interpret_predictions(DummyModel(), config, np.ones(config.channels))
+    argon = next(row for row in rows if row["element"] == "Ar")
+    assert argon["active"]
+    assert argon["status"] == "atmospheric"
+    assert argon["primary_line_type"] == "Kα"
+
+
+def test_lead_uses_its_strongest_l_line_for_display():
+    config = SpectrumConfig(channels=256)
+
+    class DummyModel:
+        elements = config.elements
+        thresholds = np.full(len(config.elements), 0.5)
+
+        def predict_proba(self, counts):
+            scores = np.zeros((1, len(self.elements)))
+            scores[0, self.elements.index("Pb")] = 0.9
+            return scores
+
+    rows = interpret_predictions(DummyModel(), config, np.ones(config.channels))
+    lead = next(row for row in rows if row["element"] == "Pb")
+    assert lead["primary_line_type"] == "Lβ"
+    assert lead["primary_energy"] == 12.614

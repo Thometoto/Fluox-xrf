@@ -17,7 +17,8 @@ os.environ.setdefault("MPLCONFIGDIR", str(PROJECT_ROOT / ".matplotlib"))
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from fluox.config import DEFAULT_LINES, SpectrumConfig  # noqa: E402
+from fluox.config import SpectrumConfig  # noqa: E402
+from fluox.interpretation import interpret_predictions  # noqa: E402
 from fluox.plotting import plot_spectrum  # noqa: E402
 from fluox.preprocessing import load_spectrum, read_spectrum  # noqa: E402
 
@@ -71,34 +72,17 @@ def main() -> int:
         if config.anode_material != args.anode:
             raise ValueError("model and selected anode do not match")
         _, model_counts = read_spectrum(str(spectrum_path), config)
-        probabilities = model.predict_proba(model_counts)[0]
         raw_energy, raw_counts = load_spectrum(str(spectrum_path))
         energy, counts = raw_energy, raw_counts
     except Exception as exc:
         print(f"Analysis error: {exc}", file=sys.stderr)
         return 1
 
-    predictions = []
-    for element, probability, threshold in zip(model.elements, probabilities, model.thresholds):
-        present = bool(probability >= threshold)
-        if present and element == "Ar":
-            status = "atmospheric"
-        elif present and element in {"Y", "Zr", "Nb"}:
-            status = "uncertain"
-        elif present:
-            status = "present"
-        else:
-            status = "absent"
-        predictions.append({
-            "element": element,
-            "energy_kev": DEFAULT_LINES[element][0][0],
-            "model_score": round(float(probability), 6),
-            "threshold": round(float(threshold), 6),
-            "present": present,
-            "status": status,
-        })
-    predictions.sort(key=lambda row: row["model_score"], reverse=True)
-    detected = [row for row in predictions if row["present"]]
+    predictions = interpret_predictions(model, config, model_counts)
+    for row in predictions:
+        row["energy_kev"] = row["primary_energy"]
+        row["model_score"] = round(row["probability"], 6)
+    detected = [row for row in predictions if row["active"]]
 
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = spectrum_path.stem
@@ -109,6 +93,10 @@ def main() -> int:
         "tube_anode": args.anode,
         "model": str(model_path),
         "detected_elements": [row["element"] for row in detected],
+        "confirmed_elements": [row["element"] for row in predictions
+                               if row["status"] in ("present", "atmospheric")],
+        "signals_to_review": [row["element"] for row in predictions
+                              if row["status"] in ("trace", "ambiguous", "uncertain")],
         "predictions": predictions,
         "score_definition": "Sigmoid output of a one-vs-rest logistic classifier; not an experimentally calibrated probability.",
         "threshold_definition": "Per-element threshold selected to maximize F1 on mixed synthetic and augmented-reference validation data.",
@@ -128,11 +116,11 @@ def main() -> int:
     print(f"Model:      {model_path.name}")
     print("\nDETECTED ELEMENTS")
     if detected:
-        print("Element   Energy (keV)   Model score   Threshold")
-        print("-------   ------------   -----------   ---------")
+        print("Element   Energy (keV)   Status        Peak SNR")
+        print("-------   ------------   ------------  --------")
         for row in detected:
             print(f"{row['element']:<7}   {row['energy_kev']:>12.3f}   "
-                  f"{row['model_score']:>11.3f}   {row['threshold']:>9.3f}")
+                  f"{row['status']:<12}  {row['peak_snr']:>8.2f}")
     else:
         print("No element is above its decision threshold.")
 
